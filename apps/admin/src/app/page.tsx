@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { OrderDrawer } from "@/components/OrderDrawer";
 import { ProductForm } from "@/components/ProductForm";
 import { ServiceAreas } from "@/components/ServiceAreas";
+import { Riders } from "@/components/Riders";
 import {
   ApiError, call, getToken, post, rupees, setToken, setUnauthorizedHandler, when,
   type Overview, type OrderRow, type ProductRow, type RiderRow,
@@ -399,90 +400,6 @@ function Products() {
           onSaved={(m) => { setMsg(m); setErr(null); void load(); }}
         />
       )}
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
-function Riders() {
-  const [rows, setRows] = useState<RiderRow[] | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try { setRows(await call<RiderRow[]>("/reports/riders?days=30")); }
-    catch (e) { setErr(e instanceof ApiError ? e.message : "Could not load"); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  async function settle(r: RiderRow) {
-    const raw = prompt(
-      `${r.name} is holding ${rupees(r.cashOutstandingMinor)}.\nHow much cash did you receive? (rupees)`,
-      (r.cashOutstandingMinor / 100).toFixed(2),
-    );
-    if (raw === null) return;
-    const receivedMinor = Math.round(Number(raw.replace(/[^0-9.]/g, "")) * 100);
-    if (!Number.isFinite(receivedMinor) || receivedMinor < 0) { setErr("Enter a valid amount."); return; }
-    try {
-      const s = await post<{ shortfallMinor: number }>("/rider/cash/settle", {
-        riderId: r.id, receivedMinor, note: "counted at shop",
-      });
-      setMsg(
-        s.shortfallMinor > 0
-          ? `Settled with ${r.name}. Short by ${rupees(s.shortfallMinor)} — recorded.`
-          : `Settled with ${r.name} in full.`,
-      );
-      setErr(null);
-      await load();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Settlement failed");
-    }
-  }
-
-  return (
-    <>
-      <h1>Riders &amp; cash</h1>
-      <p className="sub">Last 30 days. Settle cash at the end of each shift.</p>
-      {msg && <div className="alert ok">{msg}</div>}
-      {err && <div className="alert err">{err}</div>}
-
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Rider</th><th className="num">Delivered</th><th className="num">Failed</th>
-              <th className="num">Success</th><th className="num">Cash held</th><th className="num">Limit</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows === null ? (
-              <tr><td colSpan={7} className="empty">Loading…</td></tr>
-            ) : rows.length === 0 ? (
-              <tr><td colSpan={7} className="empty">No active riders.</td></tr>
-            ) : (
-              rows.map((r) => (
-                <tr key={r.id}>
-                  <td><strong>{r.name}</strong></td>
-                  <td className="num">{r.delivered}</td>
-                  <td className="num">{r.failed}</td>
-                  <td className="num">{r.successRate === null ? "—" : `${r.successRate}%`}</td>
-                  <td className="num">
-                    <span className={r.overCeiling ? "chip bad" : ""}>{rupees(r.cashOutstandingMinor)}</span>
-                  </td>
-                  <td className="num muted">{rupees(r.cashCeilingMinor)}</td>
-                  <td>
-                    <button className="btn sm" disabled={r.cashOutstandingMinor === 0}
-                            onClick={() => void settle(r)}>
-                      Settle
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
     </>
   );
 }

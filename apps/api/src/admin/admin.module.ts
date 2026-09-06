@@ -8,6 +8,7 @@ import { OrderActionsController } from "./order-actions.controller";
 import { OrdersController } from "./orders.controller";
 import { ProductsController } from "./products.controller";
 import { ReportsController } from "./reports.controller";
+import { RidersController } from "./riders.controller";
 import { ServiceAreasController } from "./service-areas.controller";
 
 @Module({
@@ -20,6 +21,7 @@ import { ServiceAreasController } from "./service-areas.controller";
     ReportsController,
     OpsController,
     ServiceAreasController,
+    RidersController,
   ],
   providers: [AuditService],
 })

@@ -206,6 +206,29 @@ packed -> assign rider -> start trip -> live tracking -> delivered
        -> COD collected -> rider cash settled with the shop
 ```
 
+### Adding a rider
+
+**Admin → Riders & cash → + New rider.** Name, phone, a sign-in email and a
+cash limit. Leave the password blank and one is generated
+(`copper-lantern-6535` style — readable enough to type on a phone keypad).
+
+A rider is two rows created together: a `staff_users` record with the `RIDER`
+role that they sign in with, and a `riders` record holding phone, vehicle and
+cash ceiling. They are created and retired as a pair, so neither is left
+orphaned.
+
+**The password is shown once.** It is argon2-hashed and cannot be read back —
+use **Password** on the row to issue a new one if it is lost.
+
+Rules the panel enforces:
+
+- duplicate phone or email refused, with which one clashed
+- a bare 10-digit number is treated as Indian and stored as `+91…`
+- **a rider mid-trip cannot be switched off** — the open stops would be
+  stranded with nobody able to complete them
+- **a rider still holding cash cannot be switched off** until it is settled
+- switching a rider off also blocks their sign-in
+
 ### Rider API
 
 | Method | Route | Notes |
