@@ -183,3 +183,19 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--emerald-lt)
 .modal-actions .btn { width: 100%; min-height: 42px; }
 
 .btn.solid-danger { background: var(--coral); border-color: var(--coral); color: #fff; }
+
+/* --- delivery areas ----------------------------------------------------- */
+@import "leaflet/dist/leaflet.css";
+
+.area-layout { display: grid; grid-template-columns: 1fr 380px; gap: 20px; align-items: start; }
+@media (max-width: 1000px) { .area-layout { grid-template-columns: 1fr; } }
+
+.area-map {
+  height: 520px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #e8eeec;
+  cursor: crosshair;
+}
+.area-map.skeleton { display: block; }
+.leaflet-container { font: inherit; border-radius: var(--radius); }

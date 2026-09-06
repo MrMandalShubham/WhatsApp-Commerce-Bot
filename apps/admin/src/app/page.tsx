@@ -4,16 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 
 import { OrderDrawer } from "@/components/OrderDrawer";
 import { ProductForm } from "@/components/ProductForm";
+import { ServiceAreas } from "@/components/ServiceAreas";
 import {
   ApiError, call, getToken, post, rupees, setToken, setUnauthorizedHandler, when,
   type Overview, type OrderRow, type ProductRow, type RiderRow,
 } from "@/lib/api";
 
-type Tab = "dashboard" | "orders" | "products" | "riders" | "ops";
+type Tab = "dashboard" | "orders" | "products" | "areas" | "riders" | "ops";
 const TABS: Array<[Tab, string]> = [
   ["dashboard", "Dashboard"],
   ["orders", "Orders"],
   ["products", "Products"],
+  ["areas", "Delivery areas"],
   ["riders", "Riders & cash"],
   ["ops", "Operations"],
 ];
@@ -112,6 +114,7 @@ function Shell({ email, onSignOut }: { email: string; onSignOut: () => void }) {
         {tab === "dashboard" && <Dashboard />}
         {tab === "orders" && <Orders />}
         {tab === "products" && <Products />}
+        {tab === "areas" && <ServiceAreas />}
         {tab === "riders" && <Riders />}
         {tab === "ops" && <Ops />}
       </main>
