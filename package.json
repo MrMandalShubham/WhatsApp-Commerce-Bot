@@ -1,0 +1,29 @@
+{
+  "name": "whatsapp-commerce-bot",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @wcb/db db:generate",
+    "db:migrate": "pnpm --filter @wcb/db db:migrate",
+    "db:seed": "pnpm --filter @wcb/db db:seed",
+    "db:studio": "pnpm --filter @wcb/db db:studio",
+    "up": "docker compose up -d --build",
+    "down": "docker compose down",
+    "logs": "docker compose logs -f api worker",
+    "build:packages": "pnpm --filter @wcb/core --filter @wcb/whatsapp --filter @wcb/payments build",
+    "test": "npx tsx --test packages/core/src/**/*.test.ts packages/payments/src/**/*.test.ts",
+    "db:deploy:prod": "dotenv -e .env.production.local -- pnpm --filter @wcb/db db:deploy",
+    "db:seed:prod": "pnpm --filter @wcb/db exec tsx prisma/seed-production.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.3"
+  }
+}

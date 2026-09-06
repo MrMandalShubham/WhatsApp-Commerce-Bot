@@ -1,0 +1,158 @@
+name: wcb
+
+services:
+  postgres:
+    # PostGIS is required for service-area polygons and delivery-point queries.
+    # Supabase ships the same extension, so the schema moves across unchanged.
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wcb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wcb_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-wcb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wcb} -d ${POSTGRES_DB:-wcb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Override the host so the app talks to the compose services, not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wcb}:${POSTGRES_PASSWORD:-wcb_local_dev}@postgres:5432/${POSTGRES_DB:-wcb}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-wcb}:${POSTGRES_PASSWORD:-wcb_local_dev}@postgres:5432/${POSTGRES_DB:-wcb}?schema=public
+      REDIS_URL: redis://redis:6379
+      # Bind mounts from Windows do not deliver inotify events; poll instead.
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind-mount source for hot reload; keep container-installed node_modules.
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages:/app/packages
+      # Anonymous volumes so the bind mount above does not shadow the
+      # node_modules that were installed inside the image.
+      - /app/packages/db/node_modules
+      - /app/packages/core/node_modules
+      - /app/packages/whatsapp/node_modules
+      - /app/packages/payments/node_modules
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      target: dev
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-wcb}:${POSTGRES_PASSWORD:-wcb_local_dev}@postgres:5432/${POSTGRES_DB:-wcb}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-wcb}:${POSTGRES_PASSWORD:-wcb_local_dev}@postgres:5432/${POSTGRES_DB:-wcb}?schema=public
+      REDIS_URL: redis://redis:6379
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./apps/worker/src:/app/apps/worker/src
+      - ./packages:/app/packages
+      - /app/packages/db/node_modules
+      - /app/packages/core/node_modules
+      - /app/packages/whatsapp/node_modules
+      - /app/packages/payments/node_modules
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  rider:
+    build:
+      context: .
+      dockerfile: apps/rider/Dockerfile
+      target: dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      # Bind mounts from Windows do not deliver inotify events; poll instead.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/rider/src:/app/apps/rider/src
+      - ./apps/rider/public:/app/apps/rider/public
+      - /app/apps/rider/node_modules
+      - /app/apps/rider/.next
+    depends_on:
+      - api
+
+  tracking:
+    build:
+      context: .
+      dockerfile: apps/tracking/Dockerfile
+      target: dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./apps/tracking/src:/app/apps/tracking/src
+      - /app/apps/tracking/node_modules
+      - /app/apps/tracking/.next
+    depends_on:
+      - api
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      target: dev
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./apps/admin/src:/app/apps/admin/src
+      - /app/apps/admin/node_modules
+      - /app/apps/admin/.next
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,24 @@
+{
+  "name": "@wcb/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bullmq": "^5.25.0",
+    "ioredis": "^5.4.1",
+    "@wcb/core": "workspace:*",
+    "@wcb/whatsapp": "workspace:*",
+    "@wcb/payments": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

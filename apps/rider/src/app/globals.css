@@ -1,0 +1,377 @@
+/* Rider app: high contrast, large tap targets, readable outdoors in sunlight.
+   Dark by default - most delivery runs end after dark and a bright screen is
+   harder to read and worse for battery. */
+
+:root {
+  --ink: #0b2b26;
+  --ink-soft: #12403a;
+  --card: #143f38;
+  --emerald: #17a38c;
+  --emerald-dk: #0e6b5c;
+  --amber: #f2b705;
+  --coral: #e0564f;
+  --text: #ffffff;
+  --muted: #9db8b1;
+  --line: rgba(255, 255, 255, 0.12);
+
+  --tap: 56px; /* minimum comfortable target with gloves */
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+  overscroll-behavior-y: contain;
+}
+
+/* Respect the notch and the home indicator. */
+.app {
+  min-height: 100dvh;
+  padding: max(12px, env(safe-area-inset-top)) 16px
+    calc(24px + env(safe-area-inset-bottom));
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+p {
+  margin: 0 0 10px;
+}
+.muted {
+  color: var(--muted);
+  font-size: 15px;
+}
+.small {
+  font-size: 13px;
+}
+
+/* --- header ------------------------------------------------------------ */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+.top .who {
+  font-weight: 700;
+}
+.cash-pill {
+  background: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cash-pill.over {
+  background: var(--amber);
+  color: var(--ink);
+  border-color: var(--amber);
+}
+
+/* --- cards ------------------------------------------------------------- */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+}
+.card.active {
+  border-color: var(--emerald);
+  box-shadow: 0 0 0 1px var(--emerald);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.order-no {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.chip {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--ink-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chip.go {
+  background: var(--emerald);
+  color: #fff;
+}
+.chip.cash {
+  background: var(--amber);
+  color: var(--ink);
+}
+
+.addr {
+  margin: 12px 0;
+}
+.addr .landmark {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.items {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 15px;
+}
+.items li {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+/* --- buttons ----------------------------------------------------------- */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 17px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0 18px;
+  text-decoration: none;
+  background: var(--emerald);
+  color: #fff;
+}
+.btn:active {
+  transform: scale(0.985);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn.secondary {
+  background: var(--ink-soft);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+.btn.warn {
+  background: var(--amber);
+  color: var(--ink);
+}
+.btn.danger {
+  background: transparent;
+  color: var(--coral);
+  border: 1px solid var(--coral);
+}
+.btn.link {
+  background: none;
+  color: var(--muted);
+  min-height: 44px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* --- forms ------------------------------------------------------------- */
+label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 14px 0 6px;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: var(--tap);
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 17px; /* 16px+ stops iOS zooming the page on focus */
+  font-family: inherit;
+  padding: 12px 14px;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--emerald);
+  outline-offset: 1px;
+}
+textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+.money-input {
+  font-size: 30px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  min-height: 68px;
+}
+
+.seg {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 8px;
+}
+.seg button {
+  min-height: 48px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--ink);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--emerald);
+  border-color: var(--emerald);
+  color: #fff;
+}
+
+/* --- status / alerts --------------------------------------------------- */
+.alert {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.alert.err {
+  background: rgba(224, 86, 79, 0.16);
+  color: #ffb4b0;
+  border: 1px solid rgba(224, 86, 79, 0.5);
+}
+.alert.warn {
+  background: rgba(242, 183, 5, 0.14);
+  color: var(--amber);
+  border: 1px solid rgba(242, 183, 5, 0.45);
+}
+.alert.ok {
+  background: rgba(23, 163, 140, 0.16);
+  color: #8fe6d4;
+  border: 1px solid rgba(23, 163, 140, 0.45);
+}
+
+.gps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
+  padding: 10px 0 2px;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.dot.live {
+  background: var(--emerald);
+  animation: pulse 2s ease-in-out infinite;
+}
+.dot.bad {
+  background: var(--coral);
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.live {
+    animation: none;
+  }
+}
+
+/* --- sheet ------------------------------------------------------------- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  z-index: 50;
+}
+.sheet {
+  background: var(--ink-soft);
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  max-height: 92dvh;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+.grab {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  margin: 0 auto 16px;
+}
+
+.empty {
+  text-align: center;
+  padding: 56px 16px;
+  color: var(--muted);
+}
+.center {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 80dvh;
+}

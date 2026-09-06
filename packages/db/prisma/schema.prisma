@@ -1,0 +1,798 @@
+// WhatsApp Commerce Bot - data model
+//
+// Design rules enforced here (see implementation plan v2, section 9.1):
+//   * money is always an integer in minor units (paise) + explicit currency
+//   * order lines snapshot price, tax and title - never read back through the FK
+//   * GST rate and HSN code are first-class, not an afterthought
+//   * every stock reservation carries an expiry
+//   * coordinates are PostGIS geography columns, not loose floats
+//   * status history is immutable; raw provider payloads are retained for replay
+//
+// Fulfilment is own-rider (no courier aggregator), so there are no shipment or
+// courier-event tables. Riders collect cash, so COD is tracked to a settlement.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [postgis]
+}
+
+// ===========================================================================
+// Enums
+// ===========================================================================
+
+enum PaymentMode {
+  COD
+  ONLINE
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED // COD
+  PENDING
+  LINK_SENT
+  PAID
+  FAILED
+  EXPIRED
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum FulfillmentStatus {
+  UNFULFILLED
+  CONFIRMED
+  PACKED
+  ASSIGNED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED_DELIVERY
+  RETURNED
+}
+
+enum OrderStatus {
+  DRAFT
+  PLACED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  ASSIGNED
+  PICKED_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum ProofOfDeliveryType {
+  NONE
+  PHOTO
+  OTP
+  SIGNATURE
+}
+
+enum CartStatus {
+  ACTIVE
+  CONVERTED
+  ABANDONED
+  EXPIRED
+}
+
+enum ConsentAction {
+  OPT_IN
+  OPT_OUT
+}
+
+enum AddressSource {
+  PIN // shared via WhatsApp location message
+  TYPED // typed by the customer, forward-geocoded
+  GEOCODED
+  STAFF_CORRECTED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum TemplateStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  OPERATOR
+  RIDER
+}
+
+enum ActorType {
+  CUSTOMER
+  STAFF
+  RIDER
+  SYSTEM
+  PROVIDER
+}
+
+enum WebhookProvider {
+  WHATSAPP
+  RAZORPAY
+}
+
+// ===========================================================================
+// Catalogue and stock
+// ===========================================================================
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  sku         String  @unique
+  title       String
+  description String?
+  categoryId  String?
+  hsnCode     String? // required on GST invoices
+  gstRate     Decimal @default(0) @db.Decimal(5, 2) // percent, e.g. 18.00
+  priceMinor  Int // paise
+  currency    String  @default("INR")
+  imageUrl    String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category   Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  variants   ProductVariant[]
+  inventory  Inventory[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([categoryId, isActive])
+  @@map("products")
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  productId  String
+  sku        String  @unique
+  name       String // "500 g", "Red / L"
+  priceMinor Int
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventory  Inventory[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model Inventory {
+  id        String  @id @default(cuid())
+  productId String?
+  variantId String?
+  onHand    Int     @default(0)
+  reserved  Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product      Product?               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant      ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  reservations InventoryReservation[]
+
+  // Uniqueness is enforced by partial indexes in the migration: NULL != NULL
+  // in Postgres, so a compound unique over a nullable column would allow
+  // duplicate rows for the same product.
+  @@index([productId])
+  @@index([variantId])
+  @@map("inventory")
+}
+
+/// Every hold on stock expires. A sweeper job releases anything past expiresAt
+/// that was never converted, so an abandoned cart cannot leak inventory.
+model InventoryReservation {
+  id          String    @id @default(cuid())
+  inventoryId String
+  cartId      String?
+  orderId     String?
+  quantity    Int
+  expiresAt   DateTime
+  releasedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  cart      Cart?     @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  order     Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt, releasedAt])
+  @@index([inventoryId])
+  @@map("inventory_reservations")
+}
+
+// ===========================================================================
+// Customers
+// ===========================================================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  waPhone   String   @unique // E.164, the WhatsApp identity
+  name      String?
+  notes     String?
+  isBlocked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consents  CustomerConsent[]
+  addresses CustomerAddress[]
+  carts     Cart[]
+  orders    Order[]
+  sessions  WhatsappSession[]
+  messages  WhatsappMessage[]
+
+  @@map("customers")
+}
+
+/// Opt-in history, not a boolean. Meta requires demonstrable consent before any
+/// template send, so we keep the wording shown and where it came from.
+model CustomerConsent {
+  id           String        @id @default(cuid())
+  customerId   String
+  action       ConsentAction
+  source       String // "whatsapp_greeting", "admin_import", ...
+  channel      String        @default("whatsapp")
+  wordingShown String?
+  occurredAt   DateTime      @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, occurredAt])
+  @@map("customer_consents")
+}
+
+model CustomerAddress {
+  id         String  @id @default(cuid())
+  customerId String
+  label      String? // "Home", "Shop"
+  line1      String
+  line2      String?
+  city       String?
+  state      String?
+  pincode    String?
+  landmark   String? // riders navigate by this, geocoders never produce it
+  notes      String?
+
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  accuracyM Int?
+  source    AddressSource @default(PIN)
+
+  /// PostGIS point kept in sync with latitude/longitude by the application.
+  /// Prisma cannot query this directly - use $queryRaw with ST_ functions.
+  location Unsupported("geography(Point, 4326)")?
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   Order[]
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+/// Delivery boundaries as polygons. Far more accurate than a PIN-code list,
+/// which routinely straddles serviceable and non-serviceable streets.
+model ServiceArea {
+  id       String  @id @default(cuid())
+  name     String
+  isActive Boolean @default(true)
+
+  codAllowed        Boolean @default(true)
+  codMaxOrderMinor  Int? // COD ceiling for this area
+  deliveryFeeMinor  Int     @default(0)
+  minOrderValueMinor Int    @default(0)
+
+  polygon Unsupported("geography(Polygon, 4326)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("service_areas")
+}
+
+// ===========================================================================
+// Carts and orders
+// ===========================================================================
+
+model Cart {
+  id         String     @id @default(cuid())
+  customerId String
+  status     CartStatus @default(ACTIVE)
+  expiresAt  DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  customer     Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items        CartItem[]
+  reservations InventoryReservation[]
+
+  @@index([customerId, status])
+  @@map("carts")
+}
+
+model CartItem {
+  id             String @id @default(cuid())
+  cartId         String
+  productId      String
+  variantId      String?
+  quantity       Int
+  unitPriceMinor Int // captured at add-to-cart, re-validated at checkout
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+/// Three independent status fields. A COD order ships unpaid, which is exactly
+/// why payment and fulfilment cannot share one enum. The label the customer
+/// sees is derived from these - never stored as a fourth source of truth.
+model Order {
+  id          String @id @default(cuid())
+  orderNumber String @unique // human-facing, e.g. "WCB-000123"
+  customerId  String
+  addressId   String?
+
+  paymentMode       PaymentMode
+  paymentStatus     PaymentStatus     @default(PENDING)
+  fulfillmentStatus FulfillmentStatus @default(UNFULFILLED)
+  orderStatus       OrderStatus       @default(DRAFT)
+
+  subtotalMinor    Int @default(0)
+  taxMinor         Int @default(0)
+  deliveryFeeMinor Int @default(0)
+  discountMinor    Int @default(0)
+  totalMinor       Int @default(0)
+  currency         String @default("INR")
+
+  serviceAreaId String?
+  placedAt      DateTime?
+  confirmedAt   DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer      Customer               @relation(fields: [customerId], references: [id])
+  address       CustomerAddress?       @relation(fields: [addressId], references: [id])
+  items         OrderItem[]
+  payments      Payment[]
+  refunds       Refund[]
+  delivery      Delivery?
+  trackingLinks TrackingLink[]
+  reservations  InventoryReservation[]
+  statusHistory OrderStatusHistory[]
+  codCollection CodCollection?
+
+  @@index([customerId, createdAt])
+  @@index([orderStatus, fulfillmentStatus])
+  @@index([paymentStatus])
+  @@map("orders")
+}
+
+/// Snapshots title, price and tax at order time. A later price change must
+/// never rewrite history.
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String?
+  variantId String?
+
+  titleSnapshot String
+  skuSnapshot   String
+  hsnSnapshot   String?
+  unitPriceMinor Int
+  quantity       Int
+  gstRate        Decimal @db.Decimal(5, 2)
+  taxMinor       Int
+  lineTotalMinor Int
+
+  createdAt DateTime @default(now())
+
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/// One row per attempt. Retries never overwrite - the history stays intact.
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String
+  attemptNo         Int           @default(1)
+  provider          String        @default("razorpay")
+  providerLinkId    String?
+  providerPaymentId String?
+  status            PaymentStatus @default(PENDING)
+  amountMinor       Int
+  currency          String        @default("INR")
+  linkUrl           String?
+  linkExpiresAt     DateTime?
+  rawCallback       Json?
+  failureReason     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+
+  @@unique([orderId, attemptNo])
+  @@index([providerPaymentId])
+  @@map("payments")
+}
+
+model Refund {
+  id               String   @id @default(cuid())
+  orderId          String
+  paymentId        String?
+  amountMinor      Int
+  status           String   @default("pending")
+  providerRefundId String?
+  reason           String?
+  rawCallback      Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("refunds")
+}
+
+// ===========================================================================
+// Delivery - own riders
+// ===========================================================================
+
+model Rider {
+  id          String  @id @default(cuid())
+  staffUserId String? @unique
+  name        String
+  phone       String  @unique
+  vehicleType String?
+  isActive    Boolean @default(true)
+
+  /// A rider cannot be assigned more COD orders once undeposited cash in hand
+  /// exceeds this ceiling.
+  cashCeilingMinor Int @default(1000000) // 10,000 INR
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staffUser   StaffUser?            @relation(fields: [staffUserId], references: [id], onDelete: SetNull)
+  deliveries  Delivery[]
+  pings       RiderLocationPing[]
+  settlements RiderCashSettlement[]
+
+  @@map("riders")
+}
+
+model Delivery {
+  id       String         @id @default(cuid())
+  orderId  String         @unique
+  riderId  String?
+  status   DeliveryStatus @default(ASSIGNED)
+  sequence Int? // stop order within a rider's trip
+
+  assignedAt  DateTime  @default(now())
+  startedAt   DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  failureReason String?
+
+  podType       ProofOfDeliveryType @default(NONE)
+  podPhotoUrl   String?
+  podOtp        String?
+  podVerifiedAt DateTime?
+  recipientName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order         Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider         Rider?              @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  pings         RiderLocationPing[]
+  codCollection CodCollection?
+
+  @@index([riderId, status])
+  @@map("deliveries")
+}
+
+/// Sampled GPS trail. Hot position lives in Redis; only sampled writes land
+/// here, and rows are purged after RIDER_PING_RETENTION_DAYS.
+model RiderLocationPing {
+  id         String   @id @default(cuid())
+  riderId    String
+  deliveryId String?
+  latitude   Decimal  @db.Decimal(10, 7)
+  longitude  Decimal  @db.Decimal(10, 7)
+  accuracyM  Int?
+  recordedAt DateTime @default(now())
+
+  location Unsupported("geography(Point, 4326)")?
+
+  rider    Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  delivery Delivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+
+  @@index([riderId, recordedAt])
+  @@index([recordedAt])
+  @@map("rider_location_pings")
+}
+
+/// Signed, short-lived, single-order. Revoked the moment the order is delivered.
+model TrackingLink {
+  id        String    @id @default(cuid())
+  orderId   String
+  token     String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  viewCount Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("tracking_links")
+}
+
+/// What the rider was owed versus what they actually collected. Partial
+/// payments are routine, so collected is never assumed to equal due.
+model CodCollection {
+  id                  String    @id @default(cuid())
+  deliveryId          String    @unique
+  orderId             String    @unique
+  amountDueMinor      Int
+  amountCollectedMinor Int      @default(0)
+  collectedAt         DateTime?
+  settlementId        String?
+  note                String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  delivery   Delivery             @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  order      Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  settlement RiderCashSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([settlementId])
+  @@map("cod_collections")
+}
+
+/// Cash handed back to the shop, by rider, by day. Shortfalls are recorded
+/// rather than silently absorbed.
+model RiderCashSettlement {
+  id                String   @id @default(cuid())
+  riderId           String
+  expectedMinor     Int
+  receivedMinor     Int
+  shortfallMinor    Int      @default(0)
+  settledAt         DateTime @default(now())
+  acceptedByStaffId String?
+  note              String?
+
+  createdAt DateTime @default(now())
+
+  rider           Rider           @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  acceptedByStaff StaffUser?      @relation(fields: [acceptedByStaffId], references: [id], onDelete: SetNull)
+  collections     CodCollection[]
+
+  @@index([riderId, settledAt])
+  @@map("rider_cash_settlements")
+}
+
+// ===========================================================================
+// Conversation
+// ===========================================================================
+
+model WhatsappSession {
+  id         String   @id @default(cuid())
+  customerId String   @unique
+  state      String   @default("idle")
+  step       String?
+  context    Json     @default("{}")
+
+  lastInboundAt DateTime?
+  /// 24-hour customer service window. Past this, only approved templates may
+  /// be sent - the send path checks this before every outbound message.
+  windowExpiresAt DateTime?
+  expiresAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_sessions")
+}
+
+model WhatsappMessage {
+  id                String           @id @default(cuid())
+  customerId        String?
+  direction         MessageDirection
+  providerMessageId String?          @unique
+  type              String // text, interactive, location, template, ...
+  templateName      String?
+  payload           Json
+  status            MessageStatus    @default(QUEUED)
+  errorCode         String?
+  errorMessage      String?
+
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt])
+  @@index([status])
+  @@map("whatsapp_messages")
+}
+
+/// Registry of approved templates. The send path refuses to dispatch a
+/// template that is not APPROVED for the requested language.
+model MessageTemplate {
+  id          String         @id @default(cuid())
+  name        String
+  language    String // "en", "hi"
+  category    String         @default("UTILITY")
+  status      TemplateStatus @default(DRAFT)
+  variables   Json           @default("[]")
+  bodyPreview String?
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  rejectReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, language])
+  @@map("message_templates")
+}
+
+// ===========================================================================
+// Platform and audit
+// ===========================================================================
+
+model WebhookEvent {
+  id             String          @id @default(cuid())
+  provider       WebhookProvider
+  providerEventId String?
+  signatureValid Boolean         @default(false)
+  payload        Json
+  headers        Json?
+  receivedAt     DateTime        @default(now())
+  processedAt    DateTime?
+  error          String?
+  attempts       Int             @default(0)
+
+  @@unique([provider, providerEventId])
+  @@index([receivedAt])
+  @@index([processedAt])
+  @@map("webhook_events")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String
+  scope        String
+  requestHash  String
+  responseBody Json?
+  statusCode   Int?
+  createdAt    DateTime @default(now())
+
+  @@unique([scope, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
+/// Immutable. One row per status transition, on any of the three fields.
+model OrderStatusHistory {
+  id         String    @id @default(cuid())
+  orderId    String
+  field      String // payment_status | fulfillment_status | order_status
+  fromValue  String?
+  toValue    String
+  actorType  ActorType
+  actorId    String?
+  reason     String?
+  occurredAt DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, occurredAt])
+  @@map("order_status_history")
+}
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         StaffRole @default(OPERATOR)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rider              Rider?
+  acceptedSettlements RiderCashSettlement[]
+
+  @@map("staff_users")
+}
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  actorType  ActorType
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  occurredAt DateTime  @default(now())
+
+  @@index([targetType, targetId])
+  @@index([occurredAt])
+  @@map("audit_log")
+}
