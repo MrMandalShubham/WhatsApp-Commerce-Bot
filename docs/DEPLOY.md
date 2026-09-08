@@ -40,6 +40,34 @@ Create one project with **six** services — five apps plus Redis.
 Set **root directory to the repository root** for every service — the
 Dockerfiles copy the whole workspace because the apps share `packages/`.
 
+### Force the Dockerfile builder
+
+⚠️ **Railway auto-detects the pnpm workspace and uses Nixpacks by default.**
+That ignores the Dockerfiles entirely — the multi-stage `prod` targets, the
+`prisma generate` step, the workspace package builds and the
+`NEXT_PUBLIC_API_URL` build arg all get skipped, and the build fails or
+produces a broken image.
+
+Point each service at its config file instead:
+
+**Service → Settings → Config-as-code → Path**
+
+| Service | Config path |
+|---|---|
+| `api` | `railway/api.json` |
+| `worker` | `railway/worker.json` |
+| `admin` | `railway/admin.json` |
+| `rider` | `railway/rider.json` |
+| `tracking` | `railway/tracking.json` |
+
+Each file sets `builder: DOCKERFILE`, the Dockerfile path, a health check and
+watch patterns so a change to one app does not redeploy all five. `prod` is
+the last stage in every Dockerfile, so Railway builds that target by default.
+
+If you would rather not use config files, set **Settings → Build → Builder →
+Dockerfile** and **Dockerfile Path → `apps/<service>/Dockerfile`** by hand for
+each service. Same result, less reproducible.
+
 ### Ports
 
 Nothing to configure. The API reads `PORT`, and Next's standalone server reads
@@ -156,8 +184,16 @@ recognise.
 - **No product image upload** — needs Supabase Storage wiring.
 - **`findNearbyAddress`** (25 m address dedup) is written and tested but not
   yet called from the checkout flow.
-- **Rider creation has no UI** — a rider needs a `staff_users` row with role
-  `RIDER` plus a linked `riders` row.
+- **No self-service password change** for staff. Riders can be reset from the
+  admin panel; owners and managers cannot change their own.
+
+## Lockfile
+
+`pnpm-lock.yaml` is committed and every Dockerfile installs with
+`--frozen-lockfile`, matching what Railway runs. **After changing any
+`package.json`, run `pnpm install` at the repo root and commit the updated
+lockfile** — otherwise the build fails on Railway with
+`ERR_PNPM_OUTDATED_LOCKFILE` even though it worked locally.
 
 ## Rollback
 

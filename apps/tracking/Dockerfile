@@ -5,7 +5,8 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml turbo.json ./
 COPY apps/tracking/package.json ./apps/tracking/
-RUN pnpm install --no-frozen-lockfile
+# Fail on lockfile drift rather than silently re-resolving.
+RUN pnpm install --frozen-lockfile
 
 FROM base AS dev
 ENV NODE_ENV=development

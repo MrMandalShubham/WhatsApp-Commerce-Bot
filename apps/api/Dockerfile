@@ -12,7 +12,8 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/core/package.json ./packages/core/
 COPY packages/whatsapp/package.json ./packages/whatsapp/
 COPY packages/payments/package.json ./packages/payments/
-RUN pnpm install --no-frozen-lockfile
+# Fail on lockfile drift rather than silently re-resolving.
+RUN pnpm install --frozen-lockfile
 
 # --- development ----------------------------------------------------------
 FROM base AS dev
