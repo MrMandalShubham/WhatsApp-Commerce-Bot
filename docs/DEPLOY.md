@@ -124,9 +124,23 @@ SHOP_NAME=<the shop's name, shown in the greeting>
 DEFAULT_CURRENCY=INR
 ```
 
-The API **refuses to boot in production** without the WhatsApp and Razorpay
-secrets — deliberate, so a half-configured deploy fails immediately rather
-than silently dropping messages.
+The API **refuses to boot in production** without `DATABASE_URL`, `REDIS_URL`,
+`JWT_SECRET`, `TRACKING_TOKEN_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and the
+three WhatsApp secrets — deliberate, so a half-configured deploy fails
+immediately rather than silently dropping messages. The error names exactly
+which variables are missing.
+
+**Razorpay is optional.** Merchant KYC takes weeks, and the shop can trade
+cash-on-delivery in the meantime, so the API boots without it and logs:
+
+```
+[config] Razorpay is not configured - running CASH ON DELIVERY ONLY.
+```
+
+In that mode the chat flow does not offer "Pay online" at all, and the payment
+provider refuses to issue links rather than handing a customer a stub link
+that collects nothing. Add the three Razorpay variables when KYC clears and
+online payment turns itself on — no code change.
 
 ### `admin`, `rider`, `tracking`
 

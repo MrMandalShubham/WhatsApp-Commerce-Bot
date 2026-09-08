@@ -60,6 +60,8 @@ export interface FlowContext {
   cartItemCount: number;
   /** Serviceability for the pin the customer shared, resolved by PostGIS. */
   delivery?: DeliveryZone;
+  /** False while the shop has no payment gateway configured (COD only). */
+  onlinePaymentsEnabled?: boolean;
   categories: CategoryView[];
   productsInCategory(categoryId: string): ProductView[];
   findProduct(productId: string): ProductView | undefined;

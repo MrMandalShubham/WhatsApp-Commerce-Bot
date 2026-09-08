@@ -298,3 +298,49 @@ test("an order below the minimum value cannot be placed at all", () => {
   assert.equal(r.state, FlowState.HANDOVER);
   assert.match((r.replies[0] as { text: string }).text, /Minimum order/i);
 });
+
+// --- COD-only mode (no payment gateway configured) ------------------------
+
+test("with no gateway configured, only cash on delivery is offered", () => {
+  const r = step(
+    { text: "skip" },
+    ctx({ state: FlowState.AWAITING_LANDMARK, cartLines: CART, onlinePaymentsEnabled: false }),
+  );
+  const btn = r.replies.find((x) => x.kind === "buttons");
+  assert.ok(btn && btn.kind === "buttons");
+  assert.deepEqual(btn.buttons.map((b) => b.id), ["pay:cod"]);
+});
+
+test("COD-only: an order above the COD ceiling cannot be placed at all", () => {
+  // Nothing left to offer, so it must go to a human rather than dead-end.
+  const r = step(
+    { text: "skip" },
+    ctx({
+      state: FlowState.AWAITING_LANDMARK,
+      onlinePaymentsEnabled: false,
+      cartLines: [{ title: "Bulk", unitPriceMinor: 600000, quantity: 1, gstRatePercent: 5 }],
+    }),
+  );
+  assert.equal(r.state, FlowState.HANDOVER);
+  assert.ok(r.effects.some((e) => e.type === ACTIONS.ESCALATE));
+  assert.ok(!r.effects.some((e) => e.type === ACTIONS.CREATE_ORDER));
+});
+
+test("COD-only: typing 'pay online' does not create an unpayable order", () => {
+  const r = step(
+    { replyId: "pay:online" },
+    ctx({ state: FlowState.AWAITING_PAYMENT_MODE, cartLines: CART, onlinePaymentsEnabled: false }),
+  );
+  assert.ok(!r.effects.some((e) => e.type === ACTIONS.CREATE_ORDER));
+  assert.match((r.replies[0] as { text: string }).text, /not available/i);
+});
+
+test("with a gateway configured both methods are still offered", () => {
+  const r = step(
+    { text: "skip" },
+    ctx({ state: FlowState.AWAITING_LANDMARK, cartLines: CART, onlinePaymentsEnabled: true }),
+  );
+  const btn = r.replies.find((x) => x.kind === "buttons");
+  assert.ok(btn && btn.kind === "buttons");
+  assert.deepEqual(btn.buttons.map((b) => b.id), ["pay:cod", "pay:online"]);
+});

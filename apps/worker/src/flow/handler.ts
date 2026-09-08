@@ -23,6 +23,12 @@ const RESERVATION_TTL_MIN = Number(process.env.RESERVATION_TTL_MINUTES ?? 30);
 const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MINUTES ?? 30);
 const LINK_TTL_MIN = Number(process.env.PAYMENT_LINK_TTL_MINUTES ?? 30);
 const API_URL = process.env.API_PUBLIC_URL ?? "http://localhost:3000";
+// Mirrors the API's own check: no gateway configured means COD only.
+const ONLINE_PAYMENTS_ENABLED = Boolean(
+  process.env.RAZORPAY_KEY_ID &&
+    process.env.RAZORPAY_KEY_SECRET &&
+    process.env.RAZORPAY_WEBHOOK_SECRET,
+) || process.env.NODE_ENV !== "production";
 
 interface SessionContext {
   lastOrderId?: string | null;
@@ -216,6 +222,7 @@ async function buildContext(
     selectedCategoryId: sctx.selectedCategoryId ?? null,
     cartLines,
     cartItemCount: cartLines.reduce((n, l) => n + l.quantity, 0),
+    onlinePaymentsEnabled: ONLINE_PAYMENTS_ENABLED,
     categories,
     productsInCategory: (id) => products.filter((p) => p.categoryId === id),
     findProduct: (id) => products.find((p) => p.id === id),

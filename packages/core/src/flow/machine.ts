@@ -475,12 +475,30 @@ function handleLandmark(input: FlowInput, ctx: FlowContext): FlowResult {
   }
 
   const cod = checkCodEligibility(totals.totalMinor, zone!, ctx.currency);
-  const buttons = cod.allowed
-    ? [
-        { id: "pay:cod", title: "Cash on delivery" },
-        { id: "pay:online", title: "Pay online" },
-      ]
-    : [{ id: "pay:online", title: "Pay online" }];
+  const online = ctx.onlinePaymentsEnabled !== false;
+
+  // Never offer a payment method the shop cannot actually take. With no
+  // gateway configured the only honest option is cash.
+  if (!cod.allowed && !online) {
+    return {
+      state: FlowState.HANDOVER,
+      replies: [
+        {
+          kind: "text",
+          text: `${cod.message ?? "We cannot take this order automatically."} Our team will contact you here shortly.`,
+        },
+      ],
+      effects: [
+        { type: ACTIONS.SAVE_LANDMARK, note },
+        { type: ACTIONS.ESCALATE, reason: cod.reason ?? "no payment method available" },
+      ],
+    };
+  }
+
+  const buttons = [
+    ...(cod.allowed ? [{ id: "pay:cod", title: "Cash on delivery" }] : []),
+    ...(online ? [{ id: "pay:online", title: "Pay online" }] : []),
+  ];
 
   const body = [
     renderCart(totals, ctx.currency),
@@ -534,6 +552,19 @@ function handlePaymentMode(input: FlowInput, ctx: FlowContext): FlowResult {
   }
 
   if (choice === "online" || matches(input, "online", "pay", "upi")) {
+    if (ctx.onlinePaymentsEnabled === false) {
+      return {
+        state: FlowState.AWAITING_PAYMENT_MODE,
+        replies: [
+          {
+            kind: "buttons",
+            text: "Online payment is not available at the moment. You can pay the rider in cash.",
+            buttons: [{ id: "pay:cod", title: "Cash on delivery" }],
+          },
+        ],
+        effects: [],
+      };
+    }
     return {
       state: FlowState.AWAITING_PAYMENT,
       replies: [],

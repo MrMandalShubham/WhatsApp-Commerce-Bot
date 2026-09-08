@@ -50,18 +50,34 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
+/** Without these nothing works at all - no messages in or out. */
 const REQUIRED_IN_PROD = [
   "WHATSAPP_PHONE_NUMBER_ID",
   "WHATSAPP_ACCESS_TOKEN",
   "WHATSAPP_APP_SECRET",
-  "RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
-  "RAZORPAY_WEBHOOK_SECRET",
 ] as const;
+
+/**
+ * Razorpay is deliberately NOT required to boot.
+ *
+ * Merchant KYC takes weeks, and a shop can trade cash-on-delivery only in the
+ * meantime. Blocking startup would mean the whole platform waits on a bank
+ * approval. Instead the shop runs COD-only and the chat flow simply does not
+ * offer online payment - see onlinePaymentsEnabled.
+ */
+export const onlinePaymentsEnabled = Boolean(
+  env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET && env.RAZORPAY_WEBHOOK_SECRET,
+);
 
 if (env.NODE_ENV === "production") {
   const missing = REQUIRED_IN_PROD.filter((k) => !env[k]);
   if (missing.length) {
     throw new Error(`Missing production secrets: ${missing.join(", ")}`);
+  }
+  if (!onlinePaymentsEnabled) {
+    console.warn(
+      "[config] Razorpay is not configured - running CASH ON DELIVERY ONLY. " +
+        "Online payment will not be offered to customers.",
+    );
   }
 }
