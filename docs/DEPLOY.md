@@ -120,6 +120,9 @@ RAZORPAY_WEBHOOK_SECRET=
 
 API_PUBLIC_URL=https://<api>.up.railway.app
 TRACKING_PUBLIC_URL=https://<tracking>.up.railway.app/track
+# A bare domain works too - a missing https:// is filled in, and a trailing
+# slash dropped. Railway's ${{RAILWAY_PUBLIC_DOMAIN}} has no scheme, so this
+# matters if you reference it.
 SHOP_NAME=<the shop's name, shown in the greeting>
 DEFAULT_CURRENCY=INR
 ```

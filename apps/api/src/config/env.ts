@@ -1,6 +1,21 @@
 import { z } from "zod";
 
 /**
+ * A public URL that tolerates how these values actually get set.
+ *
+ * Railway's ${{RAILWAY_PUBLIC_DOMAIN}} resolves to a bare hostname with no
+ * scheme, and people paste domains without one anyway. Both are obviously
+ * meant to be https, so coerce rather than refusing to boot over a missing
+ * six characters. A trailing slash is dropped so paths concatenate cleanly.
+ */
+const publicUrl = z.preprocess((raw) => {
+  if (typeof raw !== "string") return raw;
+  const v = raw.trim().replace(/\/+$/, "");
+  if (!v) return undefined;
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}, z.string().url());
+
+/**
  * Fail fast on boot rather than at 2am when a template send needs a token.
  * Provider secrets are optional in development so the stack starts without a
  * Meta account, but the app refuses to boot without them in production.
@@ -8,7 +23,8 @@ import { z } from "zod";
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(3000),
-  API_PUBLIC_URL: z.string().url().default("http://localhost:3000"),
+  API_PUBLIC_URL: publicUrl.default("http://localhost:3000"),
+  TRACKING_PUBLIC_URL: publicUrl.default("http://localhost:3002/track"),
 
   DATABASE_URL: z.string().min(1),
   DIRECT_URL: z.string().min(1).optional(),
