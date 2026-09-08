@@ -13,8 +13,16 @@ import { processOrderNotification } from "./processors/notifications";
 
 const prisma = new PrismaClient();
 const connection = new IORedis(process.env.REDIS_URL ?? "redis://redis:6379", {
-  maxRetriesPerRequest: null,
+  // Railway's private network is IPv6-only and ioredis defaults to IPv4, so
+  // without family 0 the hostname never resolves and the worker sits silently
+  // retrying forever. Family 0 works on both Railway and local Docker.
+  family: 0,
+  maxRetriesPerRequest: null, // required by BullMQ
+  retryStrategy: (attempt) => (attempt > 20 ? null : Math.min(attempt * 200, 3000)),
 });
+connection.on("error", (e) =>
+  log("redis.error", { error: (e as Error).message }),
+);
 
 // Falls back to a logging stub when no access token is set, so the whole
 // conversation can be exercised before the Meta account exists.

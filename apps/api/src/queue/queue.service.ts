@@ -8,6 +8,7 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 
 import { env } from "../config/env";
+import { redisOptions } from "../common/redis.options";
 import { DEFAULT_JOB_OPTS, JOBS, QUEUES } from "./queue.constants";
 
 @Injectable()
@@ -20,9 +21,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private notifications!: Queue;
 
   onModuleInit(): void {
-    this.connection = new IORedis(env.REDIS_URL, {
-      maxRetriesPerRequest: null, // required by BullMQ
-    });
+    this.connection = new IORedis(env.REDIS_URL, redisOptions);
+    this.connection.on("error", (e) =>
+      this.logger.error(`Redis connection error: ${e.message}`),
+    );
     this.inbound = new Queue(QUEUES.INBOUND_WHATSAPP, {
       connection: this.connection,
     });

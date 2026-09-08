@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@ne
 import IORedis from "ioredis";
 
 import { env } from "../config/env";
+import { redisOptions } from "./redis.options";
 
 export interface RiderPosition {
   lat: number;
@@ -26,7 +27,10 @@ export class PositionService implements OnModuleInit, OnModuleDestroy {
   private readonly TTL_SECONDS = 600;
 
   onModuleInit(): void {
-    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
+    this.redis = new IORedis(env.REDIS_URL, redisOptions);
+    this.redis.on("error", (e) =>
+      this.logger.error(`Redis connection error: ${e.message}`),
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
