@@ -39,7 +39,7 @@ COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/whatsapp/node_modules ./packages/whatsapp/node_modules
 COPY --from=deps /app/packages/payments/node_modules ./packages/payments/node_modules
 COPY . .
-RUN pnpm --filter @wcb/db db:generate && pnpm --filter @wcb/core --filter @wcb/whatsapp --filter @wcb/payments build && pnpm --filter @wcb/api build
+RUN pnpm --filter @wcb/api build
 
 # --- production -----------------------------------------------------------
 FROM base AS prod

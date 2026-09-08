@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --filter @wcb/db db:generate && pnpm --filter @wcb/core --filter @wcb/whatsapp --filter @wcb/payments build && tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:self": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -68,6 +68,24 @@ If you would rather not use config files, set **Settings → Build → Builder �
 Dockerfile** and **Dockerfile Path → `apps/<service>/Dockerfile`** by hand for
 each service. Same result, less reproducible.
 
+### Why the build scripts look redundant
+
+`apps/api` and `apps/worker` both run this before compiling:
+
+```
+pnpm --filter @wcb/db db:generate && pnpm --filter @wcb/core --filter @wcb/whatsapp --filter @wcb/payments build
+```
+
+That looks like something the Dockerfile should do — and it did, which was the
+problem. Any builder that ran `pnpm --filter @wcb/api build` on its own got 70
+type errors: no generated Prisma client (so `StaffRole` was missing and every
+transaction callback was `any`) and no compiled workspace packages (so
+`@wcb/core` could not be resolved).
+
+Keeping it in the build script means the app builds correctly under the
+Dockerfile, under Nixpacks, in CI, or from a bare shell. Both paths are
+verified.
+
 ### Ports
 
 Nothing to configure. The API reads `PORT`, and Next's standalone server reads
